@@ -1,0 +1,9 @@
+globs:
+  - '**/*.md'
+
+ignores:
+  - 'node_modules/**/*'
+  - 'tests/**/*'
+  # GitHub issues don't quite abide by Markdown standards (e.g. single line
+  # breaks are reproduced when rendered)
+  - '.github/ISSUE_TEMPLATE/**/*'

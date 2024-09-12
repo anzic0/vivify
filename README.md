@@ -1,77 +1,50 @@
 # Vivify
 
-Vivify brings your (Markdown) files to life in the browser!
+Vivify brings your files to life in the browser! Vivify is primarily made to
+render Markdown and Jupyter Notebooks, but will also serve as a directory
+browser and let you view code files with syntax highlighting. See below for
+features!
 
 ## Features
 
-- various [Markdown features](#markdown)
-- links to other files: [relative links like in
-  GitHub](https://docs.github.com/en/get-started/writing-on-github/getting-started-with-writing-and-formatting-on-github/basic-writing-and-formatting-syntax#relative-links)
-  as well as absolute file links
-- view non-markdown files with code syntax highlighting
+- view Markdown with various [features](#markdown-features)
+- view Jupyter Notebooks
+- view other plain text files with code syntax highlighting
 - view & navigate directories, hidden "back to parent directory" button at the
   top-left of the file viewer
 - easy to integrate with any editor for live synchronization (see [editor
   support](#editor-support))
 - Vivify server starts lazily and automatically shuts down when no more viewers
   are connected
-- various [config options](#config)
+- various [customization options](docs/customization.md)
   
 If you need any additional features, feel free to [open an
 issue](https://github.com/jannis-baum/vivify/issues/new/choose) or
 [contribute](CONTRIBUTING.md)!
 
-### Markdown
+### Markdown features
 
-- heading/anchor links
-- GitHub emojis `:smile:`
-- full Katex math support
-- GitHub task-lists
-- syntax highlighting for code
-- graphviz/dot graphs
+- full [basic](https://www.markdownguide.org/basic-syntax/) and
+  [extended](https://www.markdownguide.org/extended-syntax/) syntax support
+- [KaTeX math](https://katex.org)
+- [graphviz/dot graphs](https://graphviz.org/doc/info/lang.html)
+- [Mermaid diagrams & charts](https://mermaid.js.org)
+- [GitHub alert
+  blocks](https://docs.github.com/en/get-started/writing-on-github/getting-started-with-writing-and-formatting-on-github/basic-writing-and-formatting-syntax#alerts)
+- links to other files: [relative links like in
+  GitHub](https://docs.github.com/en/get-started/writing-on-github/getting-started-with-writing-and-formatting-on-github/basic-writing-and-formatting-syntax#relative-links)
+  as well as absolute file links
+- [add styles, classes, ids or other attributes directly from
+  Markdown](https://github.com/arve0/markdown-it-attrs?tab=readme-ov-file#examples)
+- table of contents with `[[toc]]`
+- `<kbd>` tags, e.g. to style keyboard shortcuts
 
-### Config
+You can find examples for all supported features in the files in the
+[`tests/rendering`](tests/rendering) directory. In case you are looking at these
+on GitHub, keep in mind that GitHub doesn't support some of the features that
+Vivify supports so some things may look off.
 
-Vivify will look for a config file at `~/.vivify/config.json` and
-`~/.vivify.json`. This file should contain a JSON object that can have the
-following optional keys:
-
-- **`"styles"`**\
-  a path to a custom style sheet, see [the default
-  styles](./static/) for examples
-- **`"port"`**\
-  the port Vivify's server should run on; this will be overwritten by
-  the environment variable `VIV_PORT` (default is 31622)
-- **`"timeout"`**\
-  how long the server should wait in ms before shutting down after
-  the last client disconnected; this will be overwritten by the environment
-  variable `VIV_TIMEOUT` (default is 10000)
-- **`"openCmd"`**\
-  the command `viv` uses to open your browser at a given URL; this
-  will be overwritten by the environment variable `VIV_OPEN` (default will try
-  `open` and fall back to `xdg-open`)
-- **`"katexOptions"`**\
-  [available KaTeX options](https://katex.org/docs/options.html), such as
-  ```json
-  {
-    "errorColor": "#cc0000",
-    "macros": {
-      "\\RR": "\\mathbb{R}"
-    }
-  }
-  ```
-- **`"pageTitle"`**\
-  JavaScript code that will be evaluated to determine the
-  viewer's page title based on the variable `path` for the given file (default
-  is `join(basename(dirname(path)), basename(path))`, e.g. `my_dir/my_file`)
-
-## Usage
-
-- download & unpack the latest release for your system (macOS or Linux)
-- add the two executables to your `$PATH`
-- run `viv <file>` to view `<file>`
-
-## Editor Support
+### Editor Support
 
 Vivify has a simple API to integrate your favorite editor so the viewer live
 updates to any changes as you are typing and the scrolling is smoothly
@@ -81,14 +54,43 @@ See below for a list of existing editor plugins. In case your favorite editor is
 not yet supported, use these as an example to write your own and add it to the
 list!
 
-### Existing integration
+#### Existing integration
 
-- for Vim: [vivify.vim](https://github.com/jannis-baum/vivify.vim)
+- for Vim and Neovim: [vivify.vim](https://github.com/jannis-baum/vivify.vim)
+
+## Installation
+
+Once you have Vivify installed, use it by running `viv` with any text file or
+directory as an argument! See below for installation options.
+
+### Packaged
+
+- [Homebrew](https://brew.sh): `brew install jannis-baum/tap/vivify`
+- [AUR](https://aur.archlinux.org/packages/vivify): e.g. `yay -S vivify`
+
+### Manual
+
+- download & unpack the [latest
+  release](https://github.com/jannis-baum/vivify/releases) for your system
+  (macOS or Linux)
+- add the two executables to your `$PATH`
+
+### Compile yourself
+
+- make sure you have [`yarn`](https://yarnpkg.com), `make` and `zip` installed
+- clone the repository
+- run `yarn`
+- run `./configure <install_dir>`
+- run `make install`
+
+> [!TIP]  
+> If you are having trouble building Vivify, or you'd like more detailed build
+> instructions, see our [CONTRIBUTING](docs/CONTRIBUTING.md) page
 
 ## Get help
 
-Is something not working or do you have any questions? [Open an
-issue](https://github.com/jannis-baum/vivify/issues/new/choose)!
+Is something not working or do you have any questions? [Start a
+discussion!](https://github.com/jannis-baum/vivify/discussions/new?category=q-a)
 
 ## Acknowledgments
 

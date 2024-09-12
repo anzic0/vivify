@@ -1,52 +1,97 @@
 #!/bin/sh
 
+install_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
+vivify_server="$install_dir/vivify-server"
+
 print_usage() {
-    echo "viv [--help] file"
-    echo "View file in browser and lazily start vivify-server"
+    cat <<EOF
+usage: viv target [target ...]
+
+View file/directory in your browser with Vivify.
+
+arguments:
+  target              Path to file or directory to view. For Markdown, you can
+                      suffix with :n to scroll to the content at line n in the
+                      source file
+options:
+  --help              show this help message and exit
+  --version           show version information and exit
+EOF
 }
 
-if [ "$#" -ne 1 -o "$1" = "-h" -o "$1" = "--help" ]; then
+print_bug_report() {
+    cat <<EOF
+Fatal: "$vivify_server" crashed.
+Please use the link below to submit a bug report.
+
+The bug report template will help you provide the necessary information and
+maybe even find a solution yourself.
+
+https://github.com/jannis-baum/Vivify/issues/new?labels=type%3Abug&template=bug-report.md
+
+EOF
+}
+
+print_server_file_error() {
+    cat <<EOF
+Fatal: "$vivify_server" $1.
+
+Please make sure that the "vivify-server" binary is located in the same
+directory as the "viv" script and that it is executable.
+
+EOF
+}
+
+if [ "$#" -lt 1 -o "$1" = "-h" -o "$1" = "--help" ]; then
     print_usage
     exit 1
 fi
 
-if ! [ -f "$1" ]; then
-    echo "$1 not found"
+if ! test -f "$vivify_server"; then
+    print_server_file_error "not found"
     exit 1
 fi
-FILE=`realpath "$1"`
 
-if which jq 1>/dev/null 2>/dev/null; then
-    test -f ~/.vivify.json && VIV_CONFIG=~/.vivify.json
-    test -f ~/.vivify/config.json && VIV_CONFIG=~/.vivify/config.json
-
-    if [ -n "$VIV_CONFIG" ]; then
-        [ -z "$VIV_PORT" ]    && export VIV_PORT="`jq -r '.port' "$VIV_CONFIG" | sed 's/^null$//'`"
-        [ -z "$VIV_TIMEOUT" ] && export VIV_TIMEOUT="`jq -r '.timeout' "$VIV_CONFIG" | sed 's/^null$//'`"
-        [ -z "$VIV_OPEN" ]    && export VIV_OPEN="`jq -r '.openCmd' "$VIV_CONFIG" | sed 's/^null$//'`"
-    fi
+if ! test -x "$vivify_server"; then
+    print_server_file_error "not executable"
+    exit 1
 fi
 
-if [ -z "$VIV_OPEN" ]; then
-    which open 1>/dev/null 2>/dev/null && VIV_OPEN="open"
-    which xdg-open 1>/dev/null 2>/dev/null && VIV_OPEN="xdg-open"
+output=$(mktemp)
+cleanup() {
+    rm -f "$output"
+}
+trap cleanup EXIT
 
-    if [ -z "$VIV_OPEN" ]; then
-        echo 'Please specify an "open" command in ~/.vivify/config.json, ~/.vivify.json, or $VIV_OPEN'
-        exit 1
-    fi
-fi
+nohup "$vivify_server" "$@" > "$output" 2> /dev/null &
+server_pid=$!
 
-[ -z "$VIV_PORT" ] && VIV_PORT=31622
-VIV_ADDR=http://localhost:$VIV_PORT
-[ -z "$VIV_CMD" ] && VIV_CMD=vivify-server
+monitor_server() {
+    while true; do
+        # check if startup was completed successfully, if so we can exit
+        test -f "$output" || exit 0
+        grep --quiet "STARTUP COMPLETE" "$output" && exit 0
 
-if ! curl --fail-with-body -v $VIV_ADDR/health 1>/dev/null 2>/dev/null; then
-    echo "Launching server ..."
-    nohup $VIV_CMD 1>/dev/null 2>/dev/null &
-    while ! curl --fail-with-body -v $VIV_ADDR/health 1>/dev/null 2>/dev/null; do
-        sleep 0.1
+        # server process ended otherwise
+        if ! kill -0 $server_pid 2>/dev/null; then
+            # if not, the startup failed
+            print_bug_report
+            # kill tail from while loop below
+            pkill -P $$ tail
+            exit 1
+        fi
+        sleep 0.3
     done
-fi
+}
+monitor_server &
 
-$VIV_OPEN $VIV_ADDR/viewer$FILE
+# print stdout of vivify-server until STARTUP COMPLETE is found
+tail -f "$output" | while read -r line; do
+    # server finished starting
+    if echo "$line" | grep --quiet "STARTUP COMPLETE"; then
+        pkill -P $$ tail
+        break
+    fi
+
+    echo "$line"
+done

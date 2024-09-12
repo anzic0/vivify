@@ -1,24 +1,37 @@
-import { execSync } from 'child_process';
-import { lstatSync, readdirSync, readFileSync } from 'fs';
-import { basename, dirname, join } from 'path';
+import { lstatSync, readFileSync } from 'fs';
+import { join as pjoin } from 'path';
+import { homedir } from 'os';
 
 import { Request, Response, Router } from 'express';
 
-import { messageClientsAt } from '../app';
-import parse, { pathHeading } from '../parser/parser';
-import config from '../parser/config';
+import { clientsAt, messageClients } from '../app.js';
+import config from '../config.js';
+import { pcomponents, pmime, preferredPath, urlToPath } from '../utils/path.js';
+import { renderDirectory, renderTextFile, shouldRender } from '../parser/parser.js';
 
 export const router = Router();
 
 const liveContent = new Map<string, string>();
 
-const getMimeFromPath = (path: string) =>
-    execSync(`file --mime-type -b '${path}'`).toString().trim();
-
 const pageTitle = (path: string) => {
-    if (config.pageTitle) return eval(`const path = "${path}"; ${config.pageTitle}`);
-    else return join(basename(dirname(path)), basename(path));
+    const comps = pcomponents(preferredPath(path));
+    if (config.pageTitle) {
+        return eval(`
+            const components = ${JSON.stringify(comps)};
+            ${config.pageTitle};
+        `);
+    } else return pjoin(...comps.slice(-2));
 };
+
+if (config.preferHomeTilde) {
+    router.use((req, res, next) => {
+        if (req.method === 'GET' && req.path.startsWith(homedir())) {
+            res.redirect(req.originalUrl.replace(homedir(), '/~'));
+        } else {
+            next();
+        }
+    });
+}
 
 router.get(/.*/, async (req: Request, res: Response) => {
     const path = res.locals.filepath;
@@ -27,75 +40,119 @@ router.get(/.*/, async (req: Request, res: Response) => {
     if (!body) {
         try {
             if (lstatSync(path).isDirectory()) {
-                const list = readdirSync(path)
-                    .map((item) => `- [\`${item}\`](/viewer${join(path, item)})`)
-                    .join('\n');
-                body = parse(`${pathHeading(path)}\n\n${list}`);
+                body = renderDirectory(path);
             } else {
                 const data = readFileSync(path);
-                const type = getMimeFromPath(path);
-
-                if (!type.startsWith('text/')) {
-                    res.setHeader('Content-Type', type).send(data);
+                const mime = await pmime(path);
+                if (!shouldRender(mime)) {
+                    res.setHeader('Content-Type', mime).send(data);
                     return;
                 }
 
-                body = parse(data.toString(), path);
+                body = renderTextFile(data.toString(), path);
             }
-        } catch {
-            res.status(404).send('File not found.');
+        } catch (error) {
+            res.status(500).send(String(error));
             return;
         }
+    }
+
+    let title = 'custom title error';
+    try {
+        title = pageTitle(path);
+    } catch (error) {
+        body = `Error evaluating custom page title: ${error as string}`;
     }
 
     res.send(`
         <!DOCTYPE html>
         <html>
             <head>
-                <title>${pageTitle(path)}</title>
+                <title>${title}</title>
+                <link rel="stylesheet" type="text/css" href="/static/colors.css"/>
                 <link rel="stylesheet" type="text/css" href="/static/style.css"/>
+                <link rel="stylesheet" type="text/css" href="/static/markdown.css"/>
                 <link rel="stylesheet" type="text/css" href="/static/highlight.css">
+                <link rel="stylesheet" type="text/css" href="/static/ipynb.css">
                 <link rel="stylesheet" type="text/css" href="/static/katex/katex.css">
-                <style>
-                  ${config.styles}
-                </style>
+                ${config.styles ? `<style type="text/css">${config.styles}</style>` : ''}
             <body>
-                <a id="parent-dir" href="/viewer${dirname(path)}">↩</a>
                 <div id="body-content">
                     ${body}
                 </div>
             </body>
             <script>
-                window.VIV_PORT = "${process.env['VIV_PORT']}";
-                window.VIV_PATH = "${req.path}";
+                window.VIV_PORT = "${config.port}";
+                window.VIV_PATH = "${urlToPath(req.path)}";
+            </script>
+
+            ${config.scripts ? `<script type="text/javascript">${config.scripts}</script>` : ''}
+
+            <script type="module">
+                import mermaid from '/static/mermaid/mermaid.esm.min.mjs';
+                const darkModePreference = window.matchMedia("(prefers-color-scheme: dark)");
+                mermaid.initialize({ startOnLoad: true, theme: darkModePreference.matches ? 'dark' : 'default' })
+
+                function updateTheme() {
+                    if (document.getElementsByClassName('mermaid').length > 0) {
+                        window.location.reload()
+                    }
+                }
+                darkModePreference.addEventListener("change", () => updateTheme());
+                // deprecated method for backward compatibility
+                darkModePreference.addEventListener(() => updateTheme());
             </script>
             <script type="text/javascript" src="/static/client.js"></script>
         </html>
     `);
 });
 
+// POST:
+// - `cursor`: scroll to corresponding line in source file
+// - `content`: set content for live viewer
+// - `reload`: set live content to file content (overwrites `content`)
 router.post(/.*/, async (req: Request, res: Response) => {
     const path = res.locals.filepath;
-    const { content, cursor } = req.body;
+    const { cursor, reload } = req.body;
+    let { content } = req.body;
 
-    if (content) {
-        const parsed = parse(content, path);
-        liveContent.set(path, parsed);
-        messageClientsAt(path, `UPDATE: ${parsed}`);
+    if (reload) {
+        const mime = await pmime(path);
+        if (!shouldRender(mime)) {
+            res.status(400).send('Reload is only permitted on rendered files');
+            return;
+        }
+        content = readFileSync(path).toString();
     }
-    if (cursor) messageClientsAt(path, `SCROLL: ${cursor}`);
+    const clients = clientsAt(path);
+    if (content !== undefined) {
+        const rendered = renderTextFile(content, path);
+        liveContent.set(path, rendered);
+        messageClients(clients, `UPDATE: ${rendered}`);
+    }
+    if (cursor) messageClients(clients, `SCROLL: ${cursor}`);
 
-    res.end();
+    res.send({ clients: clients.length });
 });
 
 router.delete(/.*/, async (req: Request, res: Response) => {
     const path = req.path;
+    let clientCount = 0;
+
     if (path === '/') {
         const paths = [...liveContent.keys()];
         liveContent.clear();
-        paths.forEach((path) => messageClientsAt(path, 'RELOAD: 1'));
+        clientCount = paths.reduce<number>((count, path) => {
+            const clients = clientsAt(path);
+            messageClients(clients, 'RELOAD: 1');
+            return count + clients.length;
+        }, 0);
     } else {
-        liveContent.delete(path) && messageClientsAt(path, 'RELOAD: 1');
+        const clients = clientsAt(path);
+        if (liveContent.delete(path)) {
+            messageClients(clients, 'RELOAD: 1');
+            clientCount = clients.length;
+        }
     }
-    res.end();
+    res.send({ clients: clientCount });
 });
